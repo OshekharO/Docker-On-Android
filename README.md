@@ -1,7 +1,5 @@
 ## Docker on Android 🐋📱
 
-### ***Edit*** 🎉
-
 All packages, except for Tini have been added to [termux-root](https://github.com/termux/termux-root-packages). To install them, simply `pkg install root-repo && pkg install docker`. This will install the whole docker suite, left only Tini to be compiled manually.
 
 ---
