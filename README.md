@@ -40,17 +40,18 @@ All packages, except for Tini have been added to [termux-root](https://github.co
 
 # 1. Intro
 
-This tutorial presents a step by step guide on how to run docker containers directly on Android. By directly I mean there's no VM involved nor chrooting inside a GNU/Linux rootfs. This is docker purely in Android. Yes, ***it is*** possible.
+This guide demonstrates running Docker containers **natively** on Android without virtual machines or chroot. Requirements:
+- Rooted Android device
+- Custom kernel compilation
+- Technical comfort with CLI tools
 
-Bear in mind that you'll have to root your phone, mess with and compile your phone's kernel and docker suite. So, be prepared to get your hands dirty.
+> **Warning**: Unlocking bootloader voids warranty and erases data. Backup essential files first.
 
 # 2. Building 
 
 ## 2.1. Rooting
 
-This step is pretty device specific, so there's no way to write a generic tutorial here. You'll need to google for instructions for your device and follow them.
-
-Just be aware that you may lose your phone's warrant and all your data will be erased after unlocking the bootloader, so make a backup of your important stuff.
+Device-specific process. Research instructions for your model before proceeding.
 
 ## 2.2. Kernel
 
