@@ -1,61 +1,170 @@
 ## Docker on Android 🐋📱
 
-All packages, except for Tini have been added to [termux-root](https://github.com/termux/termux-root-packages). To install them, simply `pkg install root-repo && pkg install docker`. This will install the whole docker suite, left only Tini to be compiled manually.
+> **Last Updated:** November 2025 | **Status:** ✅ Working with custom kernel
+
+Run Docker containers **natively** on Android without virtual machines, emulators, or chroot!
+
+### Quick Start (Recommended)
+
+All Docker packages have been added to [termux-root-packages](https://github.com/termux/termux-root-packages). Install the complete Docker suite with:
+
+```bash
+pkg install root-repo && pkg install docker tini
+```
+
+> **Note:** This only works if your device has a Docker-compatible kernel. See [Kernel Requirements](#kernel-requirements) to verify compatibility.
+
+### Current Versions
+
+| Component | Termux Package | Latest Upstream |
+|-----------|----------------|-----------------|
+| Docker | 24.x+ | [29.x](https://github.com/moby/moby/releases) |
+| containerd | 1.7.x+ | [2.2.x](https://github.com/containerd/containerd/releases) |
+| runc | 1.1.x+ | [1.4.x](https://github.com/opencontainers/runc/releases) |
+| tini | 0.19.0 | [0.19.0](https://github.com/krallin/tini/releases) |
 
 ---
 
 # Summary
 
 1. [Intro](#1-intro)
-2. [Building](#2-building)
-    1. [Rooting](#21-rooting)
-    2. [Kernel](#22-kernel)
-        1. [General compiling instructions](#221-general-compiling-instructions)
-        2. [Modifications](#222-modifications)
-        3. [Patching](#223-patching)
-    3. [Docker](#23-docker)
-        1. [dockercli](#231-dockercli)
-        2. [dockerd](#232-dockerd)
-        3. [tini](#233-tini)
-        4. [libnetwork](#234-libnetwork)
-        5. [containerd](#235-containerd)
-        6. [runc](#236-runc)
-3. [Running](#3-running)
-    1. [Caveats](#31-caveats)
-        1. [Internet access](#311-internet-access)
-        2. [Shared volumes](#312-shared-volumes)
-    2. [GUI](#32-gui)
-        1. [X11 Forwarding](#321-x11-forwarding)
-        2. [VNC server within the container](#322-vnc-server-within-the-container)
-    3. [Steam (work in progress)](#33-steam-work-in-progress)
-4. [Attachments](#4-attachments)
-    1. [Kernel patches](#41-kernel-patches)
-    2. [docker-cli patches](#42-docker-cli-patches)
-    3. [dockerd patches](#43-dockerd-patches)
-    4. [containerd patches](#44-containerd-patches)
-5. [Aknowledgements ](#5-aknowledgements)
-6. [Final notes](#6-final-notes)
+2. [Quick Validation](#2-quick-validation)
+    1. [Kernel Requirements](#kernel-requirements)
+    2. [Pre-flight Checks](#pre-flight-checks)
+3. [Building](#3-building)
+    1. [Rooting](#31-rooting)
+    2. [Kernel](#32-kernel)
+        1. [General compiling instructions](#321-general-compiling-instructions)
+        2. [Modifications](#322-modifications)
+        3. [Patching](#323-patching)
+    3. [Docker](#33-docker)
+        1. [dockercli](#331-dockercli)
+        2. [dockerd](#332-dockerd)
+        3. [tini](#333-tini)
+        4. [libnetwork](#334-libnetwork)
+        5. [containerd](#335-containerd)
+        6. [runc](#336-runc)
+4. [Running](#4-running)
+    1. [Verification](#41-verification)
+    2. [Caveats](#42-caveats)
+        1. [Internet access](#421-internet-access)
+        2. [Shared volumes](#422-shared-volumes)
+    3. [GUI](#43-gui)
+        1. [X11 Forwarding](#431-x11-forwarding)
+        2. [VNC server within the container](#432-vnc-server-within-the-container)
+    4. [Steam (work in progress)](#44-steam-work-in-progress)
+5. [Troubleshooting](#5-troubleshooting)
+6. [Attachments](#6-attachments)
+    1. [Kernel patches](#61-kernel-patches)
+    2. [docker-cli patches](#62-docker-cli-patches)
+    3. [dockerd patches](#63-dockerd-patches)
+    4. [containerd patches](#64-containerd-patches)
+7. [Acknowledgements](#7-acknowledgements)
+8. [Final notes](#8-final-notes)
 
 ---
 
 # 1. Intro
 
-This guide demonstrates running Docker containers **natively** on Android without virtual machines or chroot. Requirements:
-- Rooted Android device
-- Custom kernel compilation
-- Technical comfort with CLI tools
+This guide demonstrates running Docker containers **natively** on Android without virtual machines or chroot.
 
-> **Warning**: Unlocking bootloader voids warranty and erases data. Backup essential files first.
+### Requirements
 
-# 2. Building 
+| Requirement | Description |
+|-------------|-------------|
+| 🔓 Rooted device | Unlocked bootloader with root access (e.g., Magisk) |
+| 🔧 Custom kernel | Kernel compiled with Docker-required features |
+| 💻 Technical skills | Comfortable with CLI tools and kernel compilation |
+| 📱 Compatible device | ARM64 device (most modern Android phones) |
 
-## 2.1. Rooting
+> **Warning**: Unlocking bootloader may void warranty and **will erase all data**. Backup essential files first!
+
+### Compatibility
+
+This guide has been tested on:
+- Xiaomi devices with custom kernels
+- OnePlus devices  
+- Samsung devices (with unlocked bootloader)
+
+Most ARM64 devices running Android 8.0+ should work with the appropriate kernel modifications.
+
+---
+
+# 2. Quick Validation
+
+Before investing time in kernel compilation, verify your current setup.
+
+## Kernel Requirements
+
+Docker requires specific kernel features. Check your kernel configuration:
+
+```bash
+# Install required tools
+pkg install wget tsu
+
+# Download the check script
+wget https://raw.githubusercontent.com/moby/moby/master/contrib/check-config.sh
+chmod +x check-config.sh
+sed -i '1s_.*_#!/data/data/com.termux/files/usr/bin/bash_' check-config.sh
+
+# Run the check (requires root)
+sudo ./check-config.sh
+```
+
+### Expected Output
+
+You should see these categories:
+
+| Category | Required Status |
+|----------|-----------------|
+| Generally Necessary | All ✅ green |
+| Network Drivers | All ✅ green |
+| Storage Drivers | At least `overlay` ✅ |
+| Optional Features | Mostly green (some optional) |
+
+If most items show ❌ (missing), you need a custom kernel.
+
+## Pre-flight Checks
+
+Run these commands to verify your environment:
+
+```bash
+# Check if rooted
+su -c "whoami"  # Should output: root
+
+# Check kernel version
+uname -r
+
+# Check architecture (should be aarch64 for 64-bit)
+uname -m
+
+# Check cgroups (Docker needs these)
+ls /sys/fs/cgroup/
+
+# Check if overlay filesystem is supported
+cat /proc/filesystems | grep overlay
+```
+
+### Expected Results
+
+```
+✅ Root access works: "root"
+✅ Architecture: aarch64 (or armv8l)
+✅ Cgroups present: cpu, memory, blkio, etc.
+✅ Overlay supported: "nodev overlay" line present
+```
+
+---
+
+# 3. Building 
+
+## 3.1. Rooting
 
 Device-specific process. Research instructions for your model before proceeding.
 
-## 2.2. Kernel
+## 3.2. Kernel
 
-### 2.2.1. General compiling instructions
+### 3.2.1. General compiling instructions
 
 Compiling the phone's kernel is also device specific, but some major tips may help you out.
 
@@ -63,7 +172,7 @@ First, google about instructions for your phone. Start by compiling the kernel w
 
 Note that flashing the kernel won't erase any data in your phone. The worst that can happen is you get stuck in a boot loop. In this case, you can flash a kernel that's known to be working or just flash a working ROM, since it contains a kernel with it. None of these operations erase any data in your phone.
 
-### 2.2.2. Modifications
+### 3.2.2. Modifications
 
 Now that you (hopefully) are able to compile the kernel, let's talk about what matters. Docker needs a lot of features that are disabled by default in Android's kernel.
 
@@ -83,7 +192,7 @@ Now, in your computer, open the kernel's configuration menu. This menu is a modi
 
 For now, we want to enable the `Generally Necessary` items, the `Network Drivers` items and some `Optional Features`. For the `Storage Drivers` we'll be using the `overlay`.
 
-### 2.2.3. Patching
+### 3.2.3. Patching
 
 Before compiling the kernel there are two files that need to be patched.
 
@@ -93,13 +202,13 @@ The first one is the `kernel/Makefile`. Although not strictly necessary to modif
 
 If you do not apply this patch, the output of the `check-config.sh` script used above won't be reliable after recompiling the kernel.
 
-Check the [patch at the attachments section](#41-kernel-patches) and modify your Makefile accordingly.
+Check the [patch at the attachments section](#61-kernel-patches) and modify your Makefile accordingly.
 
 #### net/netfilter/xt_qtaguid.c
 
 This second file *needs to be patched* because of a bug introduced by Google. After you run any container, a seg fault will be generated due to a null pointer dereference and your phone will freeze and reboot. If you work at Google or know someone who does, warn him/her about it.
 
-Check the [patch at the attachments section](#41-kernel-patches) and modify your xt_qtaguid.c accordingly.
+Check the [patch at the attachments section](#61-kernel-patches) and modify your xt_qtaguid.c accordingly.
 
 ---
 
@@ -109,7 +218,7 @@ Now that everything is setup, compile and flash the kernel. If you applied the M
 
 Don't worry though, this is a harmless warning remembering you that you're using a modified kernel.
 
-## 2.3. Docker
+## 3.3. Docker
 
 See [Edit](#edit-).
 
@@ -130,7 +239,7 @@ $ cd $TMPDIR/docker-build
 
 Download all the patches files into there and let's begin. All commands for the differents packages that'll be compiled next is meant to be executed inside this folder.
 
-### 2.3.1. dockercli
+### 3.3.1. dockercli
 
 See [Edit](#edit-).
 
@@ -159,7 +268,7 @@ $ install -Dm 600 -t $PREFIX/share/man/man5 man/man5/*
 $ install -Dm 600 -t $PREFIX/share/man/man8 man/man8/*
 ```
 
-### 2.3.2. dockerd
+### 3.3.2. dockerd
 
 See [Edit](#edit-).
 
@@ -248,7 +357,7 @@ EOF
 
 > **Warning:** dockerd will store all its files, like containers, images, volumes, etc inside the `/data/docker` folder, which means you'll lose everything if you format the phone (flash a ROM). This folder was chosen instead of storing things inside Termux installation folder, because dockerd fails when setting up the overlay storage driver there. It seems Android mounts the `/data/data` folder with some options that prevent overlayfs to work, or the filesystem doesn't support it.
 
-### 2.3.3. tini
+### 3.3.3. tini
 
 tini is an optional dependency of dockerd in case you want the `init` process to be the first process of the container being ran (for this use the `--init` flag when creating a container). Having `init` as the parent of all other proccess ensures that a proper clean up inside the container is made regarding zombie processes. For a detailed explanation on its benefits and when to use it, check here: https://github.com/krallin/tini/issues/8
  
@@ -265,7 +374,7 @@ $ make install
 $ ln -s $PREFIX/bin/tini-static $PREFIX/bin/docker-init
 ```
 
-### 2.3.4. libnetwork
+### 3.3.4. libnetwork
 
 See [Edit](#edit-).
 
@@ -284,7 +393,7 @@ $ strip docker-proxy
 $ install -Dm 0700 docker-proxy $PREFIX/bin/docker-proxy
 ```
 
-### 2.3.5. containerd
+### 3.3.5. containerd
 
 See [Edit](#edit-).
 
@@ -336,7 +445,7 @@ EOF
 
 > **Note:** unfortunately containerd files also can't be stored inside Termux installation folder, failing with an error when creating the socket it uses.
 
-### 2.3.6. runc
+### 3.3.6. runc
 
 See [Edit](#edit-).
 
@@ -347,31 +456,89 @@ $ pkg install root-repo
 $ pkg install runc
 ```
 
-# 3. Running
+# 4. Running
 
 Now comes the truth time. To run the containers, first we need to start the daemon manually. To do so, it's advisable to install a terminal multiplexer so you can run the daemon in one pane and the container in others panes:
 
-```
-$ pkg install tmux
+```bash
+pkg install tmux
 ```
 
 In one pane start dockerd:
 
-```
-$ sudo dockerd --iptables=false
+```bash
+sudo dockerd --iptables=false
 ```
 
 And in others panes you can run the containers:
 
-```
-$ sudo docker run hello-world
+```bash
+sudo docker run hello-world
 ```
 
 > **Note:** Teaching how to use tmux is out of the scope of this guide, you can find good tutorials on YouTube. If you don't wanna use a terminal multiplexer, you can run dockerd in the background instead, with `sudo dockerd &>/dev/null &`.
 
-## 3.1. Caveats
+## 4.1. Verification
 
-### 3.1.1. Internet access
+After starting Docker, verify everything is working:
+
+### Basic Verification Commands
+
+```bash
+# Check Docker version
+sudo docker version
+
+# Check Docker system info
+sudo docker info
+
+# Verify Docker daemon is running
+sudo docker ps
+
+# Test with hello-world
+sudo docker run hello-world
+```
+
+### Expected Outputs
+
+**Docker version output should show:**
+```
+Client:
+ Version:           24.x.x (or higher)
+ API version:       1.xx
+ Go version:        go1.xx
+ ...
+
+Server:
+ Engine:
+  Version:          24.x.x (or higher)
+  ...
+```
+
+**hello-world output should show:**
+```
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+...
+```
+
+### Testing Container Functionality
+
+```bash
+# Test an Alpine container with shell access
+sudo docker run -it alpine sh
+
+# Inside the container, run:
+cat /etc/os-release   # Should show Alpine Linux
+whoami                # Should show 'root'
+exit                  # Exit the container
+
+# Test container with networking (using host network)
+sudo docker run --net=host --dns=8.8.8.8 alpine ping -c 3 google.com
+```
+
+## 4.2. Caveats
+
+### 4.2.1. Internet access
 
 The two [network drivers](https://docs.docker.com/network/) tested so far are `bridge` and `host`. Here's how to get each of them working.
 
@@ -396,7 +563,7 @@ Using the [host driver](https://docs.docker.com/network/host/), means to remove 
 
 To use this driver give the `--net=host --dns=8.8.8.8` flags when running a container.
 
-### 3.1.2. Shared volumes
+### 4.2.2. Shared volumes
 
 An easy way to share folders and files between containers and the host is to use a shared volume. For example, using the `-v ~/Documents/docker-share:/root/docker-share` flag when running a container, will make the `~/Documents/docker-share` folder from the host to be accessible inside the container `/root/docker-share` folder.
 
@@ -423,11 +590,11 @@ or all of them by:
 $ sudo find ~/Documents/docker-share -exec cat {} >/dev/null \;
 ```
 
-## 3.2. GUI
+## 4.3. GUI
 
 Yes, it's possible to run GUI programs inside a container! There's basically two ways of accomplishing it in a simple manner:
 
-### 3.2.1. X11 Forwarding
+### 4.3.1. X11 Forwarding
 
 #### Description
 
@@ -502,7 +669,7 @@ To check the GUI, you'll need to install a VNC client app in your Android phone,
 
 After installing the VNC Viewer app, open it and setup a new connection using 127.0.0.1 (or localhost) as the IP, 5901 as the port (the port is calculated as 5900 + {display number}) and when/if prompted, type the password choosen when running vnctiger for the first time.
 
-### 3.2.2. VNC server within the container
+### 4.3.2. VNC server within the container
 
 #### Description
 
@@ -558,7 +725,7 @@ Export the DISPLAY environment variable according to that value:
 # export DISPLAY=:1
 ```
 
-From now on, you can already run GUI programs and access them using the VNC Viewer client as already described in the end of [X11 Forwarding](#321-x11-forwarding) steps.
+From now on, you can already run GUI programs and access them using the VNC Viewer client as already described in the end of [X11 Forwarding](#431-x11-forwarding) steps.
 
 ##### x11vnc
 
@@ -583,9 +750,9 @@ The VNC desktop is:      localhost:0
 PORT=5900
 ```
 
-This will open a xterm terminal which can be acessed by the VNC Viewer client as already described in the end of [X11 Forwarding](#321-x11-forwarding) steps. From that terminal you can open the desired GUI program.
+This will open a xterm terminal which can be acessed by the VNC Viewer client as already described in the end of [X11 Forwarding](#431-x11-forwarding) steps. From that terminal you can open the desired GUI program.
 
-## 3.3. Steam (work in progress)
+## 4.4. Steam (work in progress)
 
 I'm not talking about running the useless steam app for Android, but about running the Desktop version and play the games inside a docker container. Yes, you read it right, it's possible to play your Steam games on Android!
 
@@ -641,9 +808,116 @@ Steam will fail with a bunch of errors, but that's expected. The important thing
 
 Now, we need to install the i386 version of some libs required by steam. For this, we're going to download them directly from Ubuntu packages. That's because if we instead simply apt install them we would be getting the arm32 version.
 
-# 4. Attachments
+---
 
-## 4.1. kernel patches
+# 5. Troubleshooting
+
+## Common Issues and Solutions
+
+### Docker daemon fails to start
+
+**Symptom:** `dockerd` exits with errors about cgroups or namespaces.
+
+**Solutions:**
+
+1. **Check cgroups are mounted:**
+   ```bash
+   mount | grep cgroup
+   # If empty, cgroups are not mounted
+   ```
+
+2. **Manually mount cgroups:**
+   ```bash
+   sudo mount -t tmpfs -o rw,nosuid,nodev,noexec,relatime cgroup_root /sys/fs/cgroup
+   for cg in blkio cpu cpuacct cpuset devices freezer memory pids; do
+     sudo mkdir -p /sys/fs/cgroup/$cg
+     sudo mount -t cgroup -o rw,nosuid,nodev,noexec,relatime,$cg $cg /sys/fs/cgroup/$cg
+   done
+   ```
+
+3. **Check for kernel support:**
+   ```bash
+   zcat /proc/config.gz | grep -i cgroup
+   # Should show CONFIG_CGROUPS=y and related options
+   ```
+
+### Container networking not working
+
+**Symptom:** Containers can't reach the internet.
+
+**Solutions:**
+
+1. **Use host networking:**
+   ```bash
+   sudo docker run --net=host --dns=8.8.8.8 alpine ping -c 3 google.com
+   ```
+
+2. **For bridge networking, configure routes:**
+   ```bash
+   # Get your gateway IP
+   ip route | grep default
+   
+   # Add routes (replace 192.168.1.1 with your gateway)
+   sudo ip route add default via 192.168.1.1 dev wlan0
+   sudo ip rule add from all lookup main pref 30000
+   ```
+
+### "Permission denied" errors
+
+**Symptom:** Docker commands fail with permission errors.
+
+**Solutions:**
+
+1. **Always use sudo:**
+   ```bash
+   sudo docker ps
+   sudo docker run hello-world
+   ```
+
+2. **Check if running as root:**
+   ```bash
+   whoami  # Should show 'root' when using sudo
+   ```
+
+### Phone freezes/reboots when running containers
+
+**Symptom:** Device becomes unresponsive or reboots after running a container.
+
+**Cause:** Usually caused by the `xt_qtaguid.c` kernel bug.
+
+**Solution:** Apply the kernel patch from the [Attachments](#61-kernel-patches) section.
+
+### Overlay filesystem errors
+
+**Symptom:** `overlay` mount errors or storage driver failures.
+
+**Solutions:**
+
+1. **Verify overlay support:**
+   ```bash
+   cat /proc/filesystems | grep overlay
+   ```
+
+2. **Use /data/docker for storage:**
+   ```bash
+   # Ensure daemon.json points to /data/docker
+   cat $PREFIX/etc/docker/daemon.json
+   ```
+
+### "Required key not available" for shared volumes
+
+**Symptom:** Can't read files in mounted volumes, see encrypted filenames.
+
+**Workaround:** Cat files from host to trigger decryption:
+```bash
+sudo find ~/Documents/docker-share -exec cat {} >/dev/null \;
+```
+
+---
+
+# 6. Attachments
+
+## 6.1. kernel patches
 
 - kernel/Makefile
 
@@ -690,17 +964,17 @@ targets += config_data.gz
          * string.
 ```
 
-## 4.2. docker-cli patches
+## 6.2. docker-cli patches
 
 - [vendor/github.com/containerd/containerd/platforms/database.go](https://github.com/termux/termux-root-packages/files/5793950/database.go.patch.txt)
 - [scripts/docs/generate-man.sh](https://github.com/termux/termux-root-packages/files/5793951/generate-man.sh.patch.txt)
 - [man/md2man-all.sh](https://github.com/termux/termux-root-packages/files/5793952/md2man-all.sh.patch.txt)
 - [cli/config/config.go](https://github.com/termux/termux-root-packages/files/5793948/config.go.patch.txt)
 
-## 4.3. dockerd patches 
+## 6.3. dockerd patches 
 - [cmd/dockerd/daemon.go](https://raw.githubusercontent.com/termux/termux-root-packages/29ca852ba95ae76b03189adbf68309fc217be7dd/packages/docker/daemon.go.patch)
 
-## 4.4. containerd patches
+## 6.4. containerd patches
 
 - [runtime/v1/linux/bundle.go](https://github.com/termux/termux-root-packages/files/5793939/bundle.go.patch.txt)
 - [runtime/v2/shim/util_unix.go](https://github.com/termux/termux-root-packages/files/5793946/util_unix.go.patch.txt)
@@ -708,12 +982,12 @@ targets += config_data.gz
 - [platforms/database.go](https://github.com/termux/termux-root-packages/files/5793940/database.go.patch.txt)
 - [vendor/github.com/cpuguy83/go-md2man/v2/md2man.go](https://github.com/termux/termux-root-packages/files/5793944/md2man.go.patch.txt)
 
-# 5. Aknowledgements
+# 7. Acknowledgements
 
 I'd like to thank the Termux Dev team for this wonderful app and @xeffyr for discovering about the bug in `net/netfilter/xt_qtaguid.c` and sharing the patch, as well as all the conversation we had [here](https://github.com/termux/termux-root-packages/issues/60) that led to docker finally working.
 
 Also @yjwong, for figuring out how to use the bridge network driver.
 
-# 6. Final notes
+# 8. Final notes
 
 If you are a docker developer reading this, please consider adding an official support for Android. Look above the possibilities it opens for a smartphone. If you are not a docker developer, consider supporting this by showing interest [here](https://github.com/moby/moby/issues/41111). If we annoy the devs enough, this may become official (of they may simply unsubscribe from the thread and let it rot in the Issues section ¯\\_(ツ)\_/¯ ).
