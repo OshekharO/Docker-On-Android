@@ -1,6 +1,6 @@
 ## Docker on Android 🐋📱
 
-> **Last Updated:** November 2025 | **Status:** ✅ Working with custom kernel
+> **Last Updated:** October 2026 | **Status:** ✅ Working with custom kernel
 
 Run Docker containers **natively** on Android without virtual machines, emulators, or chroot!
 
@@ -19,8 +19,8 @@ pkg install root-repo && pkg install docker tini
 | Component | Termux Package | Latest Upstream |
 |-----------|----------------|-----------------|
 | Docker | 24.x+ | [29.x](https://github.com/moby/moby/releases) |
-| containerd | 1.7.x+ | [2.2.x](https://github.com/containerd/containerd/releases) |
-| runc | 1.1.x+ | [1.4.x](https://github.com/opencontainers/runc/releases) |
+| containerd | 1.7.x+ | [2.4.x](https://github.com/containerd/containerd/releases) |
+| runc | 1.1.x+ | [1.5.x](https://github.com/opencontainers/runc/releases) |
 | tini | 0.19.0 | [0.19.0](https://github.com/krallin/tini/releases) |
 
 ---
@@ -168,9 +168,9 @@ Device-specific process. Research instructions for your model before proceeding.
 
 Compiling the phone's kernel is also device specific, but some major tips may help you out.
 
-First, google about instructions for your phone. Start by compiling the kernel without any modification. Flash it and hope for the best. If everything went well, then you can proceed to the modifications.
+First, research kernel build instructions for your specific device. Start by compiling the unmodified kernel to confirm your toolchain works. Flash it and verify your device boots normally before applying modifications.
 
-Note that flashing the kernel won't erase any data in your phone. The worst that can happen is you get stuck in a boot loop. In this case, you can flash a kernel that's known to be working or just flash a working ROM, since it contains a kernel with it. None of these operations erase any data in your phone.
+Note that flashing a kernel image does not erase user data on your phone. If you encounter a boot loop, you can flash a known working kernel or stock ROM (which includes a default kernel). None of these recovery steps wipe device data.
 
 ### 3.2.2. Modifications
 
@@ -206,7 +206,7 @@ Check the [patch at the attachments section](#61-kernel-patches) and modify your
 
 #### net/netfilter/xt_qtaguid.c
 
-This second file *needs to be patched* because of a bug introduced by Google. After you run any container, a seg fault will be generated due to a null pointer dereference and your phone will freeze and reboot. If you work at Google or know someone who does, warn him/her about it.
+This second file *needs to be patched* due to a bug in Android kernel sources. Running containers without this patch triggers a null pointer dereference (segmentation fault), causing the device to freeze and reboot.
 
 Check the [patch at the attachments section](#61-kernel-patches) and modify your xt_qtaguid.c accordingly.
 
@@ -216,15 +216,15 @@ Now that everything is setup, compile and flash the kernel. If you applied the M
 
 ![IMG_20210110_203818](https://user-images.githubusercontent.com/9597536/104138646-43f48000-539d-11eb-800d-b741b63c8bcd.jpg)
 
-Don't worry though, this is a harmless warning remembering you that you're using a modified kernel.
+Don't worry though, this is a harmless warning reminding you that you're using a modified kernel.
 
 ## 3.3. Docker
 
 See [Edit](#edit-).
 
-Once you have a supported kernel, it's time to compile the docker suite. It's a suite because it's not just one program, but rather a set of different programs that we'll need to compile separately. So hands on.
+Once you have a supported kernel, it's time to compile the docker suite. Docker is a suite composed of several distinct components that must be compiled separately.
 
-Firts, let's install the packages we're gonna use to build docker in Termux:
+First, let's install the packages we're gonna use to build docker in Termux:
 
 ```
 $ pkg install go make cmake ndk-multilib tsu
@@ -237,7 +237,7 @@ $ mkdir $TMPDIR/docker-build
 $ cd $TMPDIR/docker-build
 ```
 
-Download all the patches files into there and let's begin. All commands for the differents packages that'll be compiled next is meant to be executed inside this folder.
+Download all the patch files into there and let's begin. All commands for the different packages that'll be compiled next are meant to be executed inside this folder.
 
 ### 3.3.1. dockercli
 
@@ -272,14 +272,14 @@ $ install -Dm 600 -t $PREFIX/share/man/man8 man/man8/*
 
 See [Edit](#edit-).
 
-The docker daemon is the most problematic binary that's gonna be compiled. It needs so many patches that's easier to modify the code in a batch with sed. Despite the need of modifying a lot of files, the modifications by themselfs are rather simple:
+The Docker daemon (`dockerd`) is the most complex component to compile for Android. It needs so many patches that's easier to modify the code in a batch with sed. Despite the need of modifying a lot of files, the modifications by themselves are rather simple:
 
-1. Substitute every occurrence of `runtime.GOOS` by the string `"linux"`;
-2. Remove unneeded imports of the `runtime` lib.
+1. Replace every occurrence of `runtime.GOOS` with `"linux"`;
+2. Remove unused imports of the `runtime` package.
 
-By doing that, we are in essence spoofing our operating system as a Linux one: everytime the code would do the `runtime.GOOS == "linux"` comparison (which would become `"android" == "linux"`, and thus `false`) it will now do `"linux" == "linux"` and thus `true`.
+This effectively spoofs the operating system environment as Linux rather than Android, allowing standard Linux checks (`runtime.GOOS == "linux"`) to evaluate as `true`.
 
-To make the substitution across every file, we'll run a sed command. After that, some files will now give the extremely annoying unturnable-off go lang "feature" `imported and not used` error, because the only function these files were using from the `runtime` package was the `runtime.GOOS`. So, to fix it we'll use an horrible but simple solution: we'll keep trying to compile the code and at each failed attempt we'll fix the reported files till we get it to compile successfully.
+To make the substitution across every file, we'll run a sed command. After that, some files will now give the extremely annoying unturnable-off go lang "feature" `imported and not used` error, because the only function these files were using from the `runtime` package was the `runtime.GOOS`. So, to fix it we'll use a horrible but simple solution: we'll keep trying to compile the code and at each failed attempt we'll fix the reported files till we get it to compile successfully.
 
 ```
 $ cd $TMPDIR/docker-build
@@ -296,7 +296,7 @@ $ (while ! IFS='' files=$(AUTO_GOPATH=1 PREFIX='' hack/make.sh dynbinary 2>&1 1>
 $ install -Dm 0700 bundles/dynbinary-daemon/dockerd $PREFIX/bin/dockerd-dev
 ```
 
-A binary called dockerd-dev was compiled and installed, but in order to it run correctly, the cgroups need to be mounted. Since Android mounts the cgroups in a non standard location we need to fix this. To do so, a script named dockerd will be created that will mount crgoups in the correct path if needed and call dockerd-dev next.
+A binary called dockerd-dev was compiled and installed, but in order to it run correctly, the cgroups need to be mounted. Since Android mounts the cgroups in a non-standard location we need to fix this. To do so, a script named dockerd will be created that will mount cgroups in the correct path if needed and call dockerd-dev next.
 
 ```
 $ cat << "EOF" > $PREFIX/bin/dockerd
@@ -318,7 +318,7 @@ if ! mountpoint -q /sys/fs/cgroup/cg2_bpf 2>/dev/null; then
   mount -t cgroup2 -o "${opts}" cgroup2_root /sys/fs/cgroup/cg2_bpf
 fi
 
-# try to mount differents cgroups
+# try to mount different cgroups
 for cg in ${cgroups}; do
   if ! mountpoint -q "/sys/fs/cgroup/${cg}" 2>/dev/null; then
     mkdir -p "/sys/fs/cgroup/${cg}"
@@ -359,7 +359,7 @@ EOF
 
 ### 3.3.3. tini
 
-tini is an optional dependency of dockerd in case you want the `init` process to be the first process of the container being ran (for this use the `--init` flag when creating a container). Having `init` as the parent of all other proccess ensures that a proper clean up inside the container is made regarding zombie processes. For a detailed explanation on its benefits and when to use it, check here: https://github.com/krallin/tini/issues/8
+tini is an optional dependency of dockerd in case you want the `init` process to be the first process of the container being ran (for this use the `--init` flag when creating a container). Having `init` as the parent of all other process ensures that a proper clean up inside the container is made regarding zombie processes. For a detailed explanation on its benefits and when to use it, check here: https://github.com/krallin/tini/issues/8
  
 ```
 $ cd $TMPDIR/docker-build
@@ -458,7 +458,7 @@ $ pkg install runc
 
 # 4. Running
 
-Now comes the truth time. To run the containers, first we need to start the daemon manually. To do so, it's advisable to install a terminal multiplexer so you can run the daemon in one pane and the container in others panes:
+To run containers, start the Docker daemon in one terminal session and execute container commands in another. Using a terminal multiplexer like `tmux` is recommended:
 
 ```bash
 pkg install tmux
@@ -467,16 +467,16 @@ pkg install tmux
 In one pane start dockerd:
 
 ```bash
-sudo dockerd --iptables=false
+sudo dockerd --iptablesss=false
 ```
 
-And in others panes you can run the containers:
+In another pane or session, run your containers:
 
 ```bash
 sudo docker run hello-world
 ```
 
-> **Note:** Teaching how to use tmux is out of the scope of this guide, you can find good tutorials on YouTube. If you don't wanna use a terminal multiplexer, you can run dockerd in the background instead, with `sudo dockerd &>/dev/null &`.
+> **Note:** Teaching how to use tmux is out of the scope of this guide, you can find good tutorials on YouTube. If you prefer not to use a terminal multiplexer, you can run `dockerd` in the background with `sudo dockerd &>/dev/null &`.
 
 ## 4.1. Verification
 
@@ -544,9 +544,9 @@ The two [network drivers](https://docs.docker.com/network/) tested so far are `b
 
 #### bridge
 
-This is the default netwok driver. If you don't specify a driver, this is the type of network you are creating. [Bridge networks](https://docs.docker.com/network/bridge/) isolate the container network by editing the iptables rules and creating a network interface called `Docker0` that serves as a bridge. All containers created with the bridge driver will use this interface. This is analogous to creating a VLAN and running the containers inside it.
+This is the default network driver. If you don't specify a driver, this is the type of network you are creating. [Bridge networks](https://docs.docker.com/network/bridge/) isolate the container network by editing the iptablesss rules and creating a network interface called `Docker0` that serves as a bridge. All containers created with the bridge driver will use this interface. This is analogous to creating a VLAN and running the containers inside it.
 
-But, there's a catch in Android: iptables rules policy is different here than on a conventional GNU/Linux system (more info [here](https://gist.github.com/FreddieOliveira/efe850df7ff3951cb62d74bd770dce27#gistcomment-3605349)). For the bridge driver to work, you'll have to manually edit the iptable by running;
+But, there's a catch in Android: iptablesss rules policy is different here than on a conventional GNU/Linux system (more info [here](https://gist.github.com/FreddieOliveira/efe850df7ff3951cb62d74bd770dce27#gistcomment-3605349)). For the bridge driver to work, you'll have to manually edit the iptabless by running;
 
 ```
 $ sudo ip route add default via 192.168.1.1 dev wlan0
@@ -555,19 +555,19 @@ $ sudo ip rule add from all lookup main pref 30000
 
 > **Note:** change 192.168.1.1 according to your gateway IP.
 
-Unfortunately, this means that changing networks will require you to re-configure the rules again.
+You will need to update these routing rules whenever you switch networks or access points.
 
 #### host
 
-Using the [host driver](https://docs.docker.com/network/host/), means to remove network isolation between the container and the Docker host, and use the host’s networking directly. This way, the container will use the same network interface as your device (e.g. wlan0) and thus will share the same IP address.
+Using the [host network driver](https://docs.docker.com/network/host/) removes network isolation between the container and the host device. The container shares the host device's network interfaces (e.g., `wlan0`) and IP address directly.
 
-To use this driver give the `--net=host --dns=8.8.8.8` flags when running a container.
+To use this driver, pass `--net=host --dns=8.8.8.8` when running a container.
 
 ### 4.2.2. Shared volumes
 
-An easy way to share folders and files between containers and the host is to use a shared volume. For example, using the `-v ~/Documents/docker-share:/root/docker-share` flag when running a container, will make the `~/Documents/docker-share` folder from the host to be accessible inside the container `/root/docker-share` folder.
+Mounted volumes allow sharing folders and files between the host and containers. For example, passing `-v ~/Documents/docker-share:/root/docker-share` mounts the host directory `~/Documents/docker-share` to `/root/docker-share` inside the container.
 
-But, when talking about Android, things seems to never be as easy and straightforward as expected. Due to Android file system encryption, if you `ls` the `/root/docker-share` folder inside the container you might see a bunch of random letters, numbers and symbols instead of the folders and files names:
+On Android, file system encryption can cause directory contents inside mounted volumes to appear as encrypted strings when listed (`ls`):
 
 ```
 # ls /root/docker-share
@@ -578,9 +578,9 @@ GljgSZK5gFr7D4Fk7BHNeB  X1ATNoqhp,,ZsKjFXqKFiA
 I3N5j0R4zmaQPKCWwKBlxD  Yzi+KmovJmIYFOCHtDCXkB
 ```
 
-and if you try to read or create a file inside the volume you might get the `Required key not available` error.
+Attempting to read or write files within the volume may produce a `Required key not available` error.
 
-No [definitive solution](https://gist.github.com/FreddieOliveira/efe850df7ff3951cb62d74bd770dce27#gistcomment-3606119) was discovered so far, but a workaround is to `cat` the files from within the host to give the container temporary access to them. You can cat an individual file by: 
+While no [permanent fix](https://gist.github.com/FreddieOliveira/efe850df7ff3951cb62d74bd770dce27#gistcomment-3606119) exists yet, a working workaround is to access (`cat`) the files on the host first, triggering decryption and enabling container access. To decrypt an individual file:
 ```
 $ sudo cat ~/Documents/docker-share/file.pdf >/dev/null
 ``` 
@@ -592,7 +592,7 @@ $ sudo find ~/Documents/docker-share -exec cat {} >/dev/null \;
 
 ## 4.3. GUI
 
-Yes, it's possible to run GUI programs inside a container! There's basically two ways of accomplishing it in a simple manner:
+Graphical user interface (GUI) applications can be run inside containers on Android using two main methods:
 
 ### 4.3.1. X11 Forwarding
 
@@ -750,13 +750,13 @@ The VNC desktop is:      localhost:0
 PORT=5900
 ```
 
-This will open a xterm terminal which can be acessed by the VNC Viewer client as already described in the end of [X11 Forwarding](#431-x11-forwarding) steps. From that terminal you can open the desired GUI program.
+This will open a xterm terminal which can be accessed by the VNC Viewer client as already described in the end of [X11 Forwarding](#431-x11-forwarding) steps. From that terminal you can open the desired GUI program.
 
 ## 4.4. Steam (work in progress)
 
-I'm not talking about running the useless steam app for Android, but about running the Desktop version and play the games inside a docker container. Yes, you read it right, it's possible to play your Steam games on Android!
+This section covers running the desktop version of Steam inside a Docker container on Android to play desktop games.
 
-(ACTUALLY NOT YET, BECAUSE I DIDN'T MANAGE TO GET OPENGL TO WORK, THAT'S WHY THIS IS A WORK IN PROGRESS. TO CONTRIBUTE OR STAY UP TO DATE ABOUT THE PROGRESS CHECK https://github.com/ptitSeb/box86/issues/249)
+> **Note:** This feature is experimental and currently a work in progress because hardware-accelerated OpenGL/Vulkan inside containers is not yet fully functional. To track progress or contribute, see [ptitSeb/box86#249](https://github.com/ptitSeb/box86/issues/249).
 
 To do so, we'll use an awesome x86 emulator for ARM developed by @ptitSeb called [box86](https://github.com/ptitSeb/box86).
 
@@ -990,4 +990,4 @@ Also @yjwong, for figuring out how to use the bridge network driver.
 
 # 8. Final notes
 
-If you are a docker developer reading this, please consider adding an official support for Android. Look above the possibilities it opens for a smartphone. If you are not a docker developer, consider supporting this by showing interest [here](https://github.com/moby/moby/issues/41111). If we annoy the devs enough, this may become official (of they may simply unsubscribe from the thread and let it rot in the Issues section ¯\\_(ツ)\_/¯ ).
+If you are a docker developer reading this, please consider adding an official support for Android. Look above the possibilities it opens for a smartphone. If you are not a docker developer, consider supporting this by showing interest [here](https://github.com/moby/moby/issues/41111). If we annoy the devs enough, this may become official (or they may simply unsubscribe from the thread and let it rot in the Issues section ¯\\_(ツ)\_/¯ ).
